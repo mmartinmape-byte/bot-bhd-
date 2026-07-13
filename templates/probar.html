@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Probar bot — BHD</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:system-ui,-apple-system,sans-serif;background:#ece5dd;display:flex;flex-direction:column;height:100vh}
+header{background:#36393d;color:#fff;padding:.9rem 1.2rem}
+header h1{font-size:1rem}
+header small{opacity:.65;font-size:.72rem}
+#chat{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:.5rem}
+.msg{max-width:78%;padding:.55rem .8rem;border-radius:12px;font-size:.9rem;line-height:1.4;white-space:pre-wrap;box-shadow:0 1px 1px rgba(0,0,0,.08)}
+.yo{background:#dcf8c6;align-self:flex-end;border-bottom-right-radius:3px}
+.bot{background:#fff;align-self:flex-start;border-bottom-left-radius:3px}
+.derivado{align-self:center;background:#fef3c7;color:#92400e;font-size:.78rem;padding:.4rem .8rem;border-radius:16px}
+.pensando{align-self:flex-start;color:#6b7280;font-size:.8rem;padding:.3rem .6rem}
+footer{display:flex;gap:.5rem;padding:.7rem;background:#f0f0f0}
+input{flex:1;padding:.7rem .9rem;border:none;border-radius:22px;font-size:.92rem;outline:none;font-family:inherit}
+button{background:#f39c12;color:#fff;border:none;border-radius:50%;width:44px;height:44px;font-size:1.1rem;cursor:pointer}
+button:disabled{opacity:.5}
+</style>
+</head>
+<body>
+<header>
+  <h1>🤖 Probar el bot de atención BHD</h1>
+  <small>Modelo: {{ modelo }} · Escribile como si fueras un cliente</small>
+</header>
+<div id="chat"></div>
+<footer>
+  <input id="inp" placeholder="Escribí como cliente..." autofocus onkeydown="if(event.key==='Enter')enviar()"/>
+  <button id="btn" onclick="enviar()">➤</button>
+</footer>
+<script>
+const CLAVE = {{ clave|tojson }};
+const LEAD = 'prueba-' + Math.random().toString(36).slice(2, 8);
+const chat = document.getElementById('chat');
+
+function burbuja(texto, clase) {
+  const d = document.createElement('div');
+  d.className = 'msg ' + clase;
+  d.textContent = texto;
+  chat.appendChild(d);
+  chat.scrollTop = chat.scrollHeight;
+  return d;
+}
+
+async function enviar() {
+  const inp = document.getElementById('inp');
+  const btn = document.getElementById('btn');
+  const texto = inp.value.trim();
+  if (!texto) return;
+  inp.value = '';
+  burbuja(texto, 'yo');
+  const pensando = burbuja('escribiendo...', 'pensando');
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/responder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Bot-Key': CLAVE },
+      body: JSON.stringify({ lead_id: LEAD, mensaje: texto })
+    });
+    const j = await r.json();
+    pensando.remove();
+    burbuja(j.respuesta || ('Error: ' + (j.error || '?')), 'bot');
+    if (j.derivar) {
+      const d = document.createElement('div');
+      d.className = 'msg derivado';
+      d.textContent = '🙋 DERIVA A HUMANO — ' + (j.motivo || 'sin motivo');
+      chat.appendChild(d);
+    }
+  } catch (e) {
+    pensando.textContent = 'Error: ' + e;
+  } finally {
+    btn.disabled = false;
+    inp.focus();
+  }
+}
+</script>
+</body>
+</html>
