@@ -215,20 +215,23 @@ def contexto_productos():
                         precio = 0
                     if precio > 0:
                         precios.append(precio)
+                    # Solo el nombre de la variante: la disponibilidad la da el
+                    # depósito, no el stock web (evita datos contradictorios)
                     color = ' '.join((val.get('es') or '') for val in (v.get('values') or [])).strip()
-                    stock = v.get('stock')  # None = sin control de stock (hay)
-                    con_stock = (stock is None) or (stock or 0) > 0
-                    if color:
-                        variantes.append(f"{color}{'' if con_stock else ' (sin stock web)'}")
+                    if color and color not in variantes:
+                        variantes.append(color)
                 precio_txt = f"${min(precios):,.0f}".replace(',', '.') if precios else 's/precio'
                 var_txt = f" | variantes: {', '.join(variantes)}" if variantes else ''
                 lineas.append(f'- {nombre}: {precio_txt}{var_txt} | {link}')
             page += 1
         if lineas:
             _productos_cache['texto'] = (
-                '# Catálogo web con precios de lista (a estos precios aplican los '
-                'descuentos por forma de pago). Compartí el link del producto '
-                'cuando ayude al cliente.\n' + '\n'.join(lineas))
+                '# Catálogo web: precios de lista, variantes y links.\n'
+                'A estos precios aplican los descuentos por forma de pago. '
+                'Compartí el link del producto cuando ayude al cliente.\n'
+                'IMPORTANTE: la disponibilidad NO está acá — usá exclusivamente '
+                'la lista de stock del depósito para decir si hay o no hay.\n'
+                + '\n'.join(lineas))
             _productos_cache['ts'] = ahora
     except Exception as ex:
         print(f'  Aviso: no se pudo leer catálogo TN ({ex})')
