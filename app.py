@@ -4,10 +4,10 @@
 # manda `respuesta` al cliente y, si `derivar` es true, etiqueta la
 # conversación para que la tome un humano.
 
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, redirect
 from sqlalchemy import create_engine, text
 from datetime import datetime
-import os, json
+import os, re, json
 import requests as req_lib
 import anthropic
 
@@ -16,6 +16,11 @@ app = Flask(__name__)
 BOT_KEY       = os.environ.get('BOT_KEY', 'bot123')
 CLAUDE_MODEL  = os.environ.get('CLAUDE_MODEL', 'claude-opus-4-8')
 DEPOSITO_URL  = os.environ.get('DEPOSITO_URL', 'https://deposito-app-production.up.railway.app').rstrip('/')
+TIENDA_URL    = os.environ.get('TIENDA_URL', 'https://www.brothershomedeco.com.ar').rstrip('/')
+TN_CLIENT_ID     = os.environ.get('TN_CLIENT_ID', '')
+TN_CLIENT_SECRET = os.environ.get('TN_CLIENT_SECRET', '')
+# Ojo: paréntesis/espacios en el User-Agent disparan el WAF de Cloudflare de TN
+TN_UA         = 'BotBHD/1.0'
 HISTORIAL_MAX = 12  # últimos mensajes por conversación que ve el bot
 
 # La clave sale de la variable de entorno ANTHROPIC_API_KEY (Railway) o,
@@ -45,6 +50,11 @@ with engine.begin() as conn:
         )'''))
     conn.execute(text(
         'CREATE INDEX IF NOT EXISTS idx_mensajes_lead ON mensajes (lead_id, id)'))
+    conn.execute(text('''
+        CREATE TABLE IF NOT EXISTS config (
+            key   TEXT PRIMARY KEY,
+            value TEXT
+        )'''))
 
 
 def _now():
@@ -58,8 +68,10 @@ CONOCIMIENTO = """Sos el asistente virtual de Brothers Home & Deco (BHD), tienda
 # Tu forma de responder
 - Tono cálido y cercano, español argentino (vos/podés). Emojis con moderación (1-2 por mensaje).
 - Respuestas CORTAS, aptas para WhatsApp: 2 a 5 líneas. Sin títulos ni listas largas.
-- Respondé SOLO con la información de este documento y la lista de stock provista. NUNCA inventes precios, medidas, stock ni promociones.
-- Si preguntan un precio puntual: no lo sabés — indicá que pueden verlo en www.brothershomedeco.com.ar y recordá los descuentos por forma de pago.
+- Respondé SOLO con la información de este documento, el catálogo web y la lista de stock provistos. NUNCA inventes precios, medidas, stock ni promociones.
+- Precios: usá el catálogo web provisto. Son precios de lista; podés calcular y ofrecer el precio con descuento (30% efectivo, 20% transferencia). Escribí los precios con formato argentino ($39.999).
+- Cuando un producto le interese al cliente, compartile el link directo del catálogo.
+- Si un producto no está en el catálogo web ni en la lista de stock, decí que no lo encontrás y ofrecé derivar con un asesor.
 - Si el cliente ya te saludó antes en la conversación, no vuelvas a saludar.
 
 # Ubicación y horarios
@@ -103,6 +115,118 @@ WhatsApp: https://wa.me/5491122548842
 - Negociación de precios o descuentos especiales.
 - Cualquier cosa que no puedas responder con seguridad con la información disponible.
 Al derivar: avisale amablemente que lo va a atender una persona del equipo a la brevedad."""
+
+
+# ── Tienda Nube (catálogo web con precios y links) ────────────────────────────
+
+def cfg_get(key):
+    with engine.connect() as conn:
+        row = conn.execute(text('SELECT value FROM config WHERE key=:k'), {'k': key}).fetchone()
+    return row[0] if row else ''
+
+def cfg_set(key, value):
+    with engine.begin() as conn:
+        if IS_PG:
+            conn.execute(text('INSERT INTO config (key, value) VALUES (:k, :v) '
+                              'ON CONFLICT (key) DO UPDATE SET value=:v'), {'k': key, 'v': value})
+        else:
+            conn.execute(text('INSERT OR REPLACE INTO config (key, value) VALUES (:k, :v)'),
+                         {'k': key, 'v': value})
+
+def tn_headers():
+    return {'Authentication': f"bearer {cfg_get('tn_token')}",
+            'User-Agent': TN_UA, 'Content-Type': 'application/json'}
+
+def tn_base():
+    return f"https://api.tiendanube.com/v1/{cfg_get('tn_store')}"
+
+
+@app.route('/tn/conectar')
+def tn_conectar():
+    if request.args.get('clave') != BOT_KEY:
+        return 'No autorizado', 401
+    if not TN_CLIENT_ID:
+        return 'Falta configurar TN_CLIENT_ID.', 500
+    return redirect(f'https://www.tiendanube.com/apps/{TN_CLIENT_ID}/authorize')
+
+
+@app.route('/tn/callback')
+def tn_callback():
+    code = request.args.get('code')
+    if not code:
+        return 'Error: Tienda Nube no devolvió el código.', 400
+    r = req_lib.post('https://www.tiendanube.com/apps/authorize/token', json={
+        'client_id': TN_CLIENT_ID, 'client_secret': TN_CLIENT_SECRET,
+        'grant_type': 'authorization_code', 'code': code,
+    }, headers={'User-Agent': TN_UA})
+    data = r.json()
+    if 'access_token' not in data:
+        return f'Error al obtener token: {data}', 500
+    cfg_set('tn_token', data['access_token'])
+    cfg_set('tn_store', str(data.get('user_id', '')))
+    _productos_cache['ts'] = 0  # forzar recarga del catálogo
+    return ('✅ Tienda Nube conectada. El bot ya conoce el catálogo con precios. '
+            'Podés cerrar esta pestaña.')
+
+
+_productos_cache = {'texto': '', 'ts': 0}
+
+def _sin_html(s):
+    return re.sub(r'<[^>]+>', ' ', s or '').replace('&nbsp;', ' ').strip()
+
+def contexto_productos():
+    """Catálogo web: nombre, precio de lista, variantes con stock y link."""
+    ahora = datetime.now().timestamp()
+    if _productos_cache['texto'] and ahora - _productos_cache['ts'] < 600:
+        return _productos_cache['texto']
+    if not cfg_get('tn_token'):
+        return ('# Catálogo web\nNo disponible. Ante consultas de precios, '
+                'indicá que pueden verlos en ' + TIENDA_URL)
+    try:
+        lineas, page = [], 1
+        while page <= 10:
+            r = req_lib.get(f'{tn_base()}/products', headers=tn_headers(),
+                            params={'per_page': 100, 'page': page,
+                                    'published': 'true'}, timeout=30)
+            if r.status_code != 200:
+                break
+            prods = r.json()
+            if not prods:
+                break
+            for p in prods:
+                nombre = (p.get('name') or {}).get('es', '').strip()
+                if not nombre:
+                    continue
+                handle = (p.get('handle') or {}).get('es', '')
+                link = f'{TIENDA_URL}/productos/{handle}/' if handle else TIENDA_URL
+                variantes = []
+                precios = []
+                for v in (p.get('variants') or []):
+                    try:
+                        precio = float(v.get('promotional_price') or v.get('price') or 0)
+                    except (TypeError, ValueError):
+                        precio = 0
+                    if precio > 0:
+                        precios.append(precio)
+                    color = ' '.join((val.get('es') or '') for val in (v.get('values') or [])).strip()
+                    stock = v.get('stock')  # None = sin control de stock (hay)
+                    con_stock = (stock is None) or (stock or 0) > 0
+                    if color:
+                        variantes.append(f"{color}{'' if con_stock else ' (sin stock web)'}")
+                precio_txt = f"${min(precios):,.0f}".replace(',', '.') if precios else 's/precio'
+                var_txt = f" | variantes: {', '.join(variantes)}" if variantes else ''
+                lineas.append(f'- {nombre}: {precio_txt}{var_txt} | {link}')
+            page += 1
+        if lineas:
+            _productos_cache['texto'] = (
+                '# Catálogo web con precios de lista (a estos precios aplican los '
+                'descuentos por forma de pago). Compartí el link del producto '
+                'cuando ayude al cliente.\n' + '\n'.join(lineas))
+            _productos_cache['ts'] = ahora
+    except Exception as ex:
+        print(f'  Aviso: no se pudo leer catálogo TN ({ex})')
+    return _productos_cache['texto'] or ('# Catálogo web\nNo disponible ahora. '
+                                         'Ante consultas de precios, indicá ' + TIENDA_URL)
 
 
 # ── Stock real desde deposito-app (parte DINÁMICA — se refresca cada 10 min) ──
@@ -176,7 +300,11 @@ def responder_con_claude(lead_id, mensaje):
             # Bloque estático: se cachea (~90% menos costo en llamadas repetidas)
             {"type": "text", "text": CONOCIMIENTO,
              "cache_control": {"type": "ephemeral"}},
-            # Bloque dinámico: stock, cambia cada 10 min
+            # Catálogo web (precios/links): cambia cada 10 min, con su propio
+            # punto de caché para no pagarlo entero en cada mensaje
+            {"type": "text", "text": contexto_productos(),
+             "cache_control": {"type": "ephemeral"}},
+            # Stock físico del depósito, cambia cada 10 min
             {"type": "text", "text": contexto_stock()},
         ],
         messages=messages,
