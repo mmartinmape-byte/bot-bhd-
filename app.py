@@ -18,7 +18,14 @@ CLAUDE_MODEL  = os.environ.get('CLAUDE_MODEL', 'claude-opus-4-8')
 DEPOSITO_URL  = os.environ.get('DEPOSITO_URL', 'https://deposito-app-production.up.railway.app').rstrip('/')
 HISTORIAL_MAX = 12  # últimos mensajes por conversación que ve el bot
 
-claude = anthropic.Anthropic()  # usa ANTHROPIC_API_KEY del entorno
+# La clave sale de la variable de entorno ANTHROPIC_API_KEY (Railway) o,
+# para pruebas locales, del archivo apikey.txt junto a este script (gitignoreado)
+_api_key = os.environ.get('ANTHROPIC_API_KEY', '')
+if not _api_key:
+    _ruta_clave = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'apikey.txt')
+    if os.path.exists(_ruta_clave):
+        _api_key = open(_ruta_clave).read().strip()
+claude = anthropic.Anthropic(api_key=_api_key) if _api_key else anthropic.Anthropic()
 
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
 if DATABASE_URL.startswith('postgres://'):
