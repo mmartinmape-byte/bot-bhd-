@@ -169,6 +169,13 @@ def tn_callback():
             'Podés cerrar esta pestaña.')
 
 
+@app.route('/webhooks/tn', methods=['POST'])
+def webhook_tn():
+    # Webhooks de privacidad de TN (store/redact etc.): acusar recibo alcanza,
+    # el bot no guarda datos personales de clientes de la tienda
+    return jsonify({'ok': True})
+
+
 _productos_cache = {'texto': '', 'ts': 0}
 
 def _sin_html(s):
