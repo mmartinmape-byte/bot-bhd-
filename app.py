@@ -6,8 +6,8 @@
 
 from flask import Flask, render_template, request, jsonify, redirect
 from sqlalchemy import create_engine, text
-from datetime import datetime
-import os, re, json
+from datetime import datetime, timezone, timedelta
+import os, re, json, uuid
 import requests as req_lib
 import anthropic
 
@@ -22,6 +22,12 @@ TN_CLIENT_SECRET = os.environ.get('TN_CLIENT_SECRET', '')
 # Ojo: paréntesis/espacios en el User-Agent disparan el WAF de Cloudflare de TN
 TN_UA         = 'BotBHD/1.0'
 HISTORIAL_MAX = 12  # últimos mensajes por conversación que ve el bot
+
+# Página /hola (la que se graba en las tarjetas NFC / QR del showroom)
+WHATSAPP_BHD  = os.environ.get('WHATSAPP_BHD', '5491122548842')
+SHOWROOM_DIR  = 'José Hernández 5070, Munro'
+# Link directo para dejar reseña en Google (Perfil de Empresa → "Pedir reseñas").
+GOOGLE_RESENA_URL = os.environ.get('GOOGLE_RESENA_URL', '') or 'https://g.page/r/Ce8b2GtaF-NLEBM/review'
 
 # La clave sale de la variable de entorno ANTHROPIC_API_KEY (Railway) o,
 # para pruebas locales, del archivo apikey.txt junto a este script (gitignoreado)
@@ -54,6 +60,17 @@ with engine.begin() as conn:
         CREATE TABLE IF NOT EXISTS config (
             key   TEXT PRIMARY KEY,
             value TEXT
+        )'''))
+    conn.execute(text(f'''
+        CREATE TABLE IF NOT EXISTS opiniones (
+            id         {AUTOINC},
+            estrellas  INTEGER NOT NULL,
+            comentario TEXT NOT NULL DEFAULT '',
+            nombre     TEXT NOT NULL DEFAULT '',
+            telefono   TEXT NOT NULL DEFAULT '',
+            origen     TEXT NOT NULL DEFAULT '',
+            token      TEXT NOT NULL DEFAULT '',
+            fecha      TEXT NOT NULL
         )'''))
 
 
@@ -371,6 +388,93 @@ def probar():
     if request.args.get('clave') != BOT_KEY:
         return 'No autorizado. Agregá ?clave=... a la URL.', 401
     return render_template('probar.html', clave=BOT_KEY, modelo=CLAUDE_MODEL)
+
+
+# ── Página del showroom (tarjeta NFC / QR) + calificaciones ───────────────────
+# La tarjeta abre /hola (opcional ?o=mostrador, ?o=entrega… para saber de qué
+# tarjeta vino). El cliente puede escribir por WhatsApp (entra a Kommo) o
+# calificar: 4-5 estrellas → se le pide la reseña en Google; 1-3 → deja el
+# comentario acá y lo ve el equipo en /opiniones, sin que quede público.
+
+ARG = timezone(timedelta(hours=-3))
+
+
+def _limpio(v, n):
+    return str(v or '').strip()[:n]
+
+
+def _wa_numero(tel):
+    """'11 1234-5678' / '011 15…' / '+54 9 11…' → '5491112345678' para wa.me."""
+    d = re.sub(r'\D', '', tel or '')
+    if not d:
+        return ''
+    if d.startswith('54'):
+        d = d[2:]
+    d = d.lstrip('0')
+    if d.startswith('9'):
+        d = d[1:]
+    # quitar el "15" de celular tras el código de área (11 15 1234 5678)
+    if len(d) == 12 and d[2:4] == '15':
+        d = d[:2] + d[4:]
+    return '549' + d if len(d) == 10 else ''
+
+
+@app.route('/hola')
+def hola():
+    origen = re.sub(r'[^a-z0-9_-]', '', (request.args.get('o') or 'showroom').lower())[:30]
+    return render_template('hola.html', whatsapp=WHATSAPP_BHD, resena_url=GOOGLE_RESENA_URL,
+                           tienda_url=TIENDA_URL, direccion=SHOWROOM_DIR,
+                           origen=origen or 'showroom')
+
+
+@app.route('/api/opinion', methods=['POST'])
+def api_opinion():
+    """Se llama apenas el cliente toca las estrellas (así se registra aunque no
+    siga). Devuelve un token para completar después el comentario."""
+    d = request.get_json(silent=True) or {}
+    try:
+        estrellas = int(d.get('estrellas'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Calificación inválida'}), 400
+    if not 1 <= estrellas <= 5:
+        return jsonify({'error': 'Calificación inválida'}), 400
+    token = uuid.uuid4().hex
+    with engine.begin() as conn:
+        conn.execute(text(
+            'INSERT INTO opiniones (estrellas, origen, token, fecha) VALUES (:e, :o, :t, :f)'),
+            {'e': estrellas, 'o': _limpio(d.get('origen'), 30), 't': token,
+             'f': datetime.now(ARG).strftime('%Y-%m-%d %H:%M')})
+    return jsonify({'ok': True, 'token': token})
+
+
+@app.route('/api/opinion/<token>', methods=['PATCH'])
+def api_opinion_detalle(token):
+    """Agrega comentario/nombre/teléfono a una calificación ya registrada."""
+    d = request.get_json(silent=True) or {}
+    with engine.begin() as conn:
+        res = conn.execute(text(
+            'UPDATE opiniones SET comentario=:c, nombre=:n, telefono=:tel WHERE token=:t'),
+            {'c': _limpio(d.get('comentario'), 1000), 'n': _limpio(d.get('nombre'), 80),
+             'tel': _limpio(d.get('telefono'), 30), 't': token})
+    if not res.rowcount:
+        return jsonify({'error': 'No encontrada'}), 404
+    return jsonify({'ok': True})
+
+
+@app.route('/opiniones')
+def opiniones():
+    if request.args.get('clave') != BOT_KEY:
+        return 'No autorizado. Agregá ?clave=... a la URL.', 401
+    with engine.connect() as conn:
+        filas = conn.execute(text(
+            'SELECT estrellas, comentario, nombre, telefono, origen, fecha '
+            'FROM opiniones ORDER BY id DESC LIMIT 500')).mappings().all()
+    filas = [dict(f, wa=_wa_numero(f['telefono'])) for f in filas]
+    total = len(filas)
+    promedio = round(sum(f['estrellas'] for f in filas) / total, 1) if total else 0
+    por_estrella = {n: sum(1 for f in filas if f['estrellas'] == n) for n in range(5, 0, -1)}
+    return render_template('opiniones.html', filas=filas, total=total,
+                           promedio=promedio, por_estrella=por_estrella)
 
 
 @app.route('/')

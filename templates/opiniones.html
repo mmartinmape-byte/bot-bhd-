@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Opiniones BHD</title>
+<style>
+  :root { --ink:#111; --muted:#6b6b6b; --line:#e7e3dc; --bg:#f7f5f1; --card:#fff; --star:#e8a817; --bad:#b42318; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; background:var(--bg); color:var(--ink); }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 24px 16px 40px; }
+  h1 { font-size: 1.3rem; margin: 0 0 16px; }
+  .top { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .box { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; }
+  .lbl { font-size:.75rem; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:600; }
+  .big { font-size:2rem; font-weight:700; margin-top:4px; }
+  .big small { font-size:1rem; color:var(--star); }
+  .bar { display:grid; grid-template-columns: 34px 1fr 32px; align-items:center; gap:8px; font-size:.85rem; margin:5px 0; }
+  .bar div { height:8px; background:#efebe4; border-radius:6px; overflow:hidden; }
+  .bar div i { display:block; height:100%; background:var(--star); }
+  .bar span:last-child { text-align:right; color:var(--muted); }
+  .filtros { display:flex; gap:8px; flex-wrap:wrap; margin: 4px 0 12px; }
+  .filtros button { border:1.5px solid var(--line); background:#fff; border-radius:20px; padding:6px 14px; cursor:pointer; font:inherit; font-size:.85rem; }
+  .filtros button.on { background:var(--ink); color:#fff; border-color:var(--ink); }
+  .item { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px 16px; margin-bottom:10px; }
+  .item.bad { border-left: 4px solid var(--bad); }
+  .head { display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; font-size:.85rem; color:var(--muted); }
+  .st { color:var(--star); font-size:1.05rem; letter-spacing:1px; }
+  .com { margin:8px 0 0; line-height:1.5; white-space:pre-wrap; }
+  .who { margin-top:8px; font-size:.85rem; }
+  .who a { color:#128c4a; font-weight:600; text-decoration:none; }
+  .empty { text-align:center; color:var(--muted); padding:40px 0; }
+  .tag { background:#efebe4; border-radius:6px; padding:1px 8px; font-size:.75rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>⭐ Opiniones del showroom</h1>
+
+  <div class="top">
+    <div class="box">
+      <div class="lbl">Promedio</div>
+      <div class="big">{{ promedio }} <small>★</small></div>
+      <div style="color:var(--muted);font-size:.85rem">{{ total }} calificaci{{ 'ón' if total == 1 else 'ones' }}</div>
+    </div>
+    <div class="box">
+      {% for n, c in por_estrella.items() %}
+      <div class="bar">
+        <span>{{ n }} ★</span>
+        <div><i style="width: {{ (c * 100 / total) if total else 0 }}%"></i></div>
+        <span>{{ c }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="filtros">
+    <button class="on" data-f="todas">Todas</button>
+    <button data-f="bad">Para mejorar (1–3 ★)</button>
+    <button data-f="com">Con comentario</button>
+  </div>
+
+  {% if not filas %}
+    <div class="empty">Todavía no hay calificaciones.</div>
+  {% endif %}
+  {% for f in filas %}
+  <div class="item{{ ' bad' if f.estrellas <= 3 }}" data-bad="{{ 1 if f.estrellas <= 3 else 0 }}" data-com="{{ 1 if f.comentario else 0 }}">
+    <div class="head">
+      <span class="st">{{ '★' * f.estrellas }}<span style="color:#ddd6ca">{{ '★' * (5 - f.estrellas) }}</span></span>
+      <span>{{ f.fecha }} · <span class="tag">{{ f.origen or 'showroom' }}</span></span>
+    </div>
+    {% if f.comentario %}<p class="com">{{ f.comentario }}</p>{% endif %}
+    {% if f.nombre or f.telefono %}
+    <div class="who">
+      {{ f.nombre or 'Sin nombre' }}
+      {% if f.wa %}
+        · <a href="https://wa.me/{{ f.wa }}" target="_blank" rel="noopener">WhatsApp {{ f.telefono }}</a>
+      {% elif f.telefono %}
+        · Tel: {{ f.telefono }}
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+<script>
+  document.querySelectorAll('.filtros button').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('.filtros button').forEach(x => x.classList.toggle('on', x === b));
+    const f = b.dataset.f;
+    document.querySelectorAll('.item').forEach(it => {
+      it.style.display = (f === 'todas' || (f === 'bad' && it.dataset.bad === '1') || (f === 'com' && it.dataset.com === '1')) ? '' : 'none';
+    });
+  }));
+</script>
+</body>
+</html>

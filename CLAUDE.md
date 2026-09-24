@@ -68,6 +68,10 @@ En el Salesbot de Kommo hay que agregar un paso **HTTP** que llame a `POST /api/
 - `GET /probar?clave=<BOT_KEY>` — chat de prueba.
 - `GET /tn/conectar?clave=<BOT_KEY>` y `GET /tn/callback` — OAuth de Tienda Nube (para que el bot lea el catálogo). Autorizar **logueado en la cuenta de BHD**.
 - `POST /webhooks/tn` — webhooks de privacidad de TN (solo acusa recibo).
+- `GET /hola` — **página pública del showroom** que se graba en las tarjetas NFC / QR. Botón de WhatsApp (mensaje precargado, entra a Kommo) + calificación con estrellas: 4-5 ★ → pide reseña en Google; 1-3 ★ → comentario privado para el equipo (igual muestra un link chico a Google). `?o=mostrador`, `?o=entrega`, etc. identifica de qué tarjeta vino.
+- `POST /api/opinion` (registra las estrellas apenas las tocan, devuelve un `token`) y `PATCH /api/opinion/<token>` (suma comentario/nombre/teléfono). Tabla `opiniones`.
+- `GET /opiniones?clave=<BOT_KEY>` — panel con promedio, reparto por estrellas y comentarios (con link al WhatsApp del cliente).
+- Variables opcionales: `GOOGLE_RESENA_URL` (link "Pedir reseñas" del Perfil de Empresa de Google; por defecto https://g.page/r/Ce8b2GtaF-NLEBM/review) y `WHATSAPP_BHD` (por defecto 5491122548842).
 
 ## Gotchas / cosas a no romper
 
