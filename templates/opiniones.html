@@ -32,6 +32,9 @@
   .who a { color:#128c4a; font-weight:600; text-decoration:none; }
   .empty { text-align:center; color:var(--muted); padding:40px 0; }
   .tag { background:#efebe4; border-radius:6px; padding:1px 8px; font-size:.75rem; }
+  .del { margin-left:8px; border:1px solid var(--line); background:#fff; color:var(--muted); border-radius:6px;
+         padding:1px 8px; font:inherit; font-size:.75rem; cursor:pointer; }
+  .del:hover { color:var(--bad); border-color:var(--bad); }
 </style>
 </head>
 <body>
@@ -68,7 +71,8 @@
   <div class="item{{ ' bad' if f.estrellas <= 3 }}" data-bad="{{ 1 if f.estrellas <= 3 else 0 }}" data-com="{{ 1 if f.comentario else 0 }}">
     <div class="head">
       <span class="st">{{ '★' * f.estrellas }}<span style="color:#ddd6ca">{{ '★' * (5 - f.estrellas) }}</span></span>
-      <span>{{ f.fecha }} · <span class="tag">{{ f.origen or 'showroom' }}</span></span>
+      <span>{{ f.fecha }} · <span class="tag">{{ f.origen or 'showroom' }}</span>
+        <button class="del" type="button" data-id="{{ f.id }}" title="Borrar esta calificación">Borrar</button></span>
     </div>
     {% if f.comentario %}<p class="com">{{ f.comentario }}</p>{% endif %}
     {% if f.nombre or f.telefono %}
@@ -91,6 +95,17 @@
     document.querySelectorAll('.item').forEach(it => {
       it.style.display = (f === 'todas' || (f === 'bad' && it.dataset.bad === '1') || (f === 'com' && it.dataset.com === '1')) ? '' : 'none';
     });
+  }));
+
+  const CLAVE = {{ clave | tojson }};
+  document.querySelectorAll('.del').forEach(b => b.addEventListener('click', async () => {
+    if (!confirm('¿Borrar esta calificación? No se puede deshacer.')) return;
+    b.disabled = true;
+    const r = await fetch('/api/opiniones/' + b.dataset.id, {
+      method: 'DELETE', headers: { 'X-Bot-Key': CLAVE }
+    }).catch(() => null);
+    if (r && r.ok) location.reload();
+    else { b.disabled = false; alert('No se pudo borrar.'); }
   }));
 </script>
 </body>

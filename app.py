@@ -449,15 +449,39 @@ def api_opinion():
 
 @app.route('/api/opinion/<token>', methods=['PATCH'])
 def api_opinion_detalle(token):
-    """Agrega comentario/nombre/teléfono a una calificación ya registrada."""
+    """Actualiza una calificación ya registrada: las estrellas (si el cliente
+    cambia de opinión, se corrige la misma fila en vez de sumar otra) y/o el
+    comentario, nombre y teléfono."""
     d = request.get_json(silent=True) or {}
+    sets, params = [], {'t': token}
+    if 'estrellas' in d:
+        try:
+            estrellas = int(d['estrellas'])
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Calificación inválida'}), 400
+        if not 1 <= estrellas <= 5:
+            return jsonify({'error': 'Calificación inválida'}), 400
+        sets.append('estrellas=:e'); params['e'] = estrellas
+    for campo, n in (('comentario', 1000), ('nombre', 80), ('telefono', 30)):
+        if campo in d:
+            sets.append(f'{campo}=:{campo}'); params[campo] = _limpio(d[campo], n)
+    if not sets:
+        return jsonify({'error': 'Nada para actualizar'}), 400
     with engine.begin() as conn:
         res = conn.execute(text(
-            'UPDATE opiniones SET comentario=:c, nombre=:n, telefono=:tel WHERE token=:t'),
-            {'c': _limpio(d.get('comentario'), 1000), 'n': _limpio(d.get('nombre'), 80),
-             'tel': _limpio(d.get('telefono'), 30), 't': token})
+            'UPDATE opiniones SET ' + ', '.join(sets) + ' WHERE token=:t'), params)
     if not res.rowcount:
         return jsonify({'error': 'No encontrada'}), 404
+    return jsonify({'ok': True})
+
+
+@app.route('/api/opiniones/<int:oid>', methods=['DELETE'])
+def api_opinion_borrar(oid):
+    """Borra una calificación desde el panel (para limpiar pruebas)."""
+    if (request.headers.get('X-Bot-Key') or request.args.get('clave')) != BOT_KEY:
+        return jsonify({'error': 'No autorizado'}), 401
+    with engine.begin() as conn:
+        conn.execute(text('DELETE FROM opiniones WHERE id=:id'), {'id': oid})
     return jsonify({'ok': True})
 
 
@@ -467,14 +491,14 @@ def opiniones():
         return 'No autorizado. Agregá ?clave=... a la URL.', 401
     with engine.connect() as conn:
         filas = conn.execute(text(
-            'SELECT estrellas, comentario, nombre, telefono, origen, fecha '
+            'SELECT id, estrellas, comentario, nombre, telefono, origen, fecha '
             'FROM opiniones ORDER BY id DESC LIMIT 500')).mappings().all()
     filas = [dict(f, wa=_wa_numero(f['telefono'])) for f in filas]
     total = len(filas)
     promedio = round(sum(f['estrellas'] for f in filas) / total, 1) if total else 0
     por_estrella = {n: sum(1 for f in filas if f['estrellas'] == n) for n in range(5, 0, -1)}
     return render_template('opiniones.html', filas=filas, total=total,
-                           promedio=promedio, por_estrella=por_estrella)
+                           promedio=promedio, por_estrella=por_estrella, clave=BOT_KEY)
 
 
 @app.route('/')

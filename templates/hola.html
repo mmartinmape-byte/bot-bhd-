@@ -193,7 +193,14 @@
   const LABELS = ['', 'Muy mala', 'Mala', 'Regular', 'Buena', '¡Excelente!'];
   const stars = Array.from(document.querySelectorAll('.star'));
   const lbl = document.getElementById('stars-lbl');
-  let token = null, elegida = 0, enviando = false;
+  let token = null, tokenP = null, elegida = 0, enviando = false;
+
+  function crear(n) {
+    return fetch('/api/opinion', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ estrellas: n, origen: ORIGEN })
+    }).then(r => r.json()).then(r => r.token || null).catch(() => null);
+  }
 
   function pintar(n) {
     stars.forEach((s, i) => {
@@ -213,13 +220,19 @@
     pintar(n);
     mostrar(n >= 4 ? 'step-good' : 'step-bad');
     if (n <= 3) setTimeout(() => document.getElementById('f-com').focus(), 250);
-    try {
-      const r = await fetch('/api/opinion', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ estrellas: n, origen: ORIGEN })
-      }).then(r => r.json());
-      token = r.token || null;
-    } catch (e) { token = null; }
+    // Una sola fila por visita: la 1ª estrella crea la calificación y los
+    // cambios posteriores la corrigen (esperando a que exista, por si tocan rápido).
+    if (tokenP) token = await tokenP;
+    if (token) {
+      fetch('/api/opinion/' + token, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estrellas: n })
+      }).catch(() => {});
+    } else {
+      tokenP = crear(n);
+      token = await tokenP;
+      if (!token) tokenP = null;  // sin señal: se reintenta en el próximo toque o al enviar
+    }
   }));
 
   document.getElementById('f-send').addEventListener('click', async () => {
@@ -233,16 +246,13 @@
     btn.textContent = 'Enviando…';
     try {
       // Si la calificación no llegó a registrarse (sin señal), se registra ahora
-      if (!token) {
-        const r = await fetch('/api/opinion', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ estrellas: elegida, origen: ORIGEN })
-        }).then(r => r.json());
-        token = r.token;
-      }
+      if (tokenP) token = await tokenP;
+      if (!token) token = await crear(elegida);
+      if (!token) throw new Error();
       const res = await fetch('/api/opinion/' + token, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          estrellas: elegida,
           comentario: com,
           nombre: document.getElementById('f-nom').value.trim(),
           telefono: document.getElementById('f-tel').value.trim()
