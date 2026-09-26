@@ -41,6 +41,10 @@ claude = anthropic.Anthropic(api_key=_api_key) if _api_key else anthropic.Anthro
 DATABASE_URL = os.environ.get('DATABASE_URL', '')
 if DATABASE_URL.startswith('postgres://'):
     DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
+# Driver explícito: desde SQLAlchemy 2.1 "postgresql://" usa psycopg 3 por
+# defecto y acá está instalado psycopg2 (sin esto la app no arranca en Railway)
+if DATABASE_URL.startswith('postgresql://'):
+    DATABASE_URL = DATABASE_URL.replace('postgresql://', 'postgresql+psycopg2://', 1)
 IS_PG = DATABASE_URL.startswith('postgresql')
 engine = create_engine(DATABASE_URL if IS_PG else 'sqlite:///bot.db', pool_pre_ping=True)
 
