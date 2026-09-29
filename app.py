@@ -4,7 +4,7 @@
 # manda `respuesta` al cliente y, si `derivar` es true, etiqueta la
 # conversación para que la tome un humano.
 
-from flask import Flask, render_template, request, jsonify, redirect
+from flask import Flask, render_template, request, jsonify, redirect, Response
 from sqlalchemy import create_engine, text
 from datetime import datetime, timezone, timedelta
 import os, re, json, uuid
@@ -12,6 +12,7 @@ import requests as req_lib
 import anthropic
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 25 * 1024 * 1024  # PDFs de catálogos
 
 BOT_KEY       = os.environ.get('BOT_KEY', 'bot123')
 CLAUDE_MODEL  = os.environ.get('CLAUDE_MODEL', 'claude-opus-4-8')
@@ -75,6 +76,36 @@ with engine.begin() as conn:
             origen     TEXT NOT NULL DEFAULT '',
             token      TEXT NOT NULL DEFAULT '',
             fecha      TEXT NOT NULL
+        )'''))
+    # Catálogos mayoristas (QR del showroom → /mayoristas)
+    BLOB = 'BYTEA' if IS_PG else 'BLOB'
+    conn.execute(text(f'''
+        CREATE TABLE IF NOT EXISTS may_clientes (
+            id        {AUTOINC},
+            nombre    TEXT NOT NULL,
+            comercio  TEXT NOT NULL,
+            telefono  TEXT NOT NULL,
+            localidad TEXT NOT NULL DEFAULT '',
+            token     TEXT NOT NULL,
+            fecha     TEXT NOT NULL,
+            ultima    TEXT NOT NULL,
+            visitas   INTEGER NOT NULL DEFAULT 1
+        )'''))
+    conn.execute(text(f'''
+        CREATE TABLE IF NOT EXISTS may_catalogos (
+            id      {AUTOINC},
+            titulo  TEXT NOT NULL,
+            archivo TEXT NOT NULL,
+            datos   {BLOB} NOT NULL,
+            bytes   INTEGER NOT NULL,
+            fecha   TEXT NOT NULL
+        )'''))
+    conn.execute(text(f'''
+        CREATE TABLE IF NOT EXISTS may_descargas (
+            id          {AUTOINC},
+            cliente_id  INTEGER NOT NULL,
+            catalogo_id INTEGER NOT NULL,
+            fecha       TEXT NOT NULL
         )'''))
 
 
@@ -503,6 +534,172 @@ def opiniones():
     por_estrella = {n: sum(1 for f in filas if f['estrellas'] == n) for n in range(5, 0, -1)}
     return render_template('opiniones.html', filas=filas, total=total,
                            promedio=promedio, por_estrella=por_estrella, clave=BOT_KEY)
+
+
+# ── Catálogos mayoristas (QR en el showroom) ──────────────────────────────────
+# El QR abre /mayoristas. La primera vez el cliente deja nombre, comercio y
+# WhatsApp (queda como contacto en /mayoristas/admin); se le guarda una cookie
+# y desde ahí ve y descarga los PDF sin volver a completar nada. Los PDF se
+# suben/reemplazan desde el panel y viven en la base (sobreviven a los deploys).
+
+MAY_COOKIE = 'bhd_may'
+
+
+def _hoy():
+    return datetime.now(ARG).strftime('%Y-%m-%d %H:%M')
+
+
+def _may_cliente():
+    # Cliente mayorista de la cookie, o None
+    tok = request.cookies.get(MAY_COOKIE, '')
+    if not re.fullmatch(r'[0-9a-f]{32}', tok):
+        return None
+    with engine.connect() as conn:
+        row = conn.execute(text('SELECT id, nombre FROM may_clientes WHERE token=:t'),
+                           {'t': tok}).mappings().first()
+    return dict(row) if row else None
+
+
+def _may_catalogos():
+    with engine.connect() as conn:
+        return [dict(r) for r in conn.execute(text(
+            'SELECT id, titulo, bytes, fecha FROM may_catalogos ORDER BY id')).mappings()]
+
+
+def _con_cookie(resp, token):
+    resp.set_cookie(MAY_COOKIE, token, max_age=60 * 60 * 24 * 365, httponly=True,
+                    samesite='Lax', secure=request.is_secure or
+                    request.headers.get('X-Forwarded-Proto') == 'https')
+    return resp
+
+
+@app.route('/mayoristas')
+def mayoristas():
+    cli = _may_cliente()
+    if cli:
+        with engine.begin() as conn:
+            conn.execute(text('UPDATE may_clientes SET ultima=:f, visitas=visitas+1 WHERE id=:id'),
+                         {'f': _hoy(), 'id': cli['id']})
+    return render_template('mayoristas.html', cliente=cli,
+                           catalogos=_may_catalogos() if cli else [],
+                           whatsapp=WHATSAPP_BHD, direccion=SHOWROOM_DIR)
+
+
+@app.route('/api/mayoristas/registro', methods=['POST'])
+def may_registro():
+    d = request.get_json(silent=True) or {}
+    nombre, comercio = _limpio(d.get('nombre'), 80), _limpio(d.get('comercio'), 100)
+    telefono, localidad = _limpio(d.get('telefono'), 30), _limpio(d.get('localidad'), 80)
+    if not nombre or not comercio:
+        return jsonify({'error': 'Completá tu nombre y el nombre del comercio.'}), 400
+    digitos = re.sub(r'\D', '', telefono)
+    if len(digitos) < 8:
+        return jsonify({'error': 'Revisá el número de WhatsApp.'}), 400
+    with engine.begin() as conn:
+        # Si ya se registró (otro celular, borró la cookie) se reusa su ficha
+        existentes = conn.execute(text('SELECT id, token, telefono FROM may_clientes')).mappings().all()
+        previo = next((r for r in existentes
+                       if re.sub(r'\D', '', r['telefono'])[-8:] == digitos[-8:]), None)
+        if previo:
+            token = previo['token']
+            conn.execute(text(
+                'UPDATE may_clientes SET nombre=:n, comercio=:c, telefono=:t, localidad=:l, '
+                'ultima=:f, visitas=visitas+1 WHERE id=:id'),
+                {'n': nombre, 'c': comercio, 't': telefono, 'l': localidad,
+                 'f': _hoy(), 'id': previo['id']})
+        else:
+            token = uuid.uuid4().hex
+            conn.execute(text(
+                'INSERT INTO may_clientes (nombre, comercio, telefono, localidad, token, fecha, ultima) '
+                'VALUES (:n, :c, :t, :l, :tok, :f, :f)'),
+                {'n': nombre, 'c': comercio, 't': telefono, 'l': localidad,
+                 'tok': token, 'f': _hoy()})
+    return _con_cookie(jsonify({'ok': True}), token)
+
+
+@app.route('/mayoristas/catalogo/<int:cid>')
+def may_catalogo(cid):
+    cli = _may_cliente()
+    if not cli and request.args.get('clave') != BOT_KEY:
+        return redirect('/mayoristas')
+    with engine.connect() as conn:
+        row = conn.execute(text('SELECT archivo, datos FROM may_catalogos WHERE id=:id'),
+                           {'id': cid}).mappings().first()
+    if not row:
+        return redirect('/mayoristas')
+    if cli:
+        with engine.begin() as conn:
+            conn.execute(text('INSERT INTO may_descargas (cliente_id, catalogo_id, fecha) '
+                              'VALUES (:c, :k, :f)'), {'c': cli['id'], 'k': cid, 'f': _hoy()})
+    nombre = re.sub(r'[^\w .()-]', '', row['archivo']) or 'catalogo.pdf'
+    return Response(bytes(row['datos']), mimetype='application/pdf', headers={
+        'Content-Disposition': f'inline; filename="{nombre}"',
+        'Cache-Control': 'private, no-store'})
+
+
+def _admin_ok():
+    return (request.headers.get('X-Bot-Key') or request.args.get('clave')
+            or request.form.get('clave')) == BOT_KEY
+
+
+@app.route('/api/mayoristas/catalogos', methods=['POST'])
+def may_subir():
+    # Alta de catálogo, o reemplazo del PDF si viene `reemplaza` (id)
+    if not _admin_ok():
+        return jsonify({'error': 'No autorizado'}), 401
+    f = request.files.get('pdf')
+    titulo = _limpio(request.form.get('titulo'), 100)
+    if not f or not titulo:
+        return jsonify({'error': 'Falta el título o el archivo.'}), 400
+    datos = f.read()
+    if not datos.startswith(b'%PDF'):
+        return jsonify({'error': 'El archivo tiene que ser un PDF.'}), 400
+    reemplaza = request.form.get('reemplaza', '')
+    params = {'t': titulo, 'a': _limpio(f.filename, 150) or 'catalogo.pdf',
+              'd': datos, 'b': len(datos), 'f': _hoy()}
+    with engine.begin() as conn:
+        if reemplaza.isdigit():
+            params['id'] = int(reemplaza)
+            conn.execute(text('UPDATE may_catalogos SET titulo=:t, archivo=:a, datos=:d, '
+                              'bytes=:b, fecha=:f WHERE id=:id'), params)
+        else:
+            conn.execute(text('INSERT INTO may_catalogos (titulo, archivo, datos, bytes, fecha) '
+                              'VALUES (:t, :a, :d, :b, :f)'), params)
+    return jsonify({'ok': True})
+
+
+@app.route('/api/mayoristas/catalogos/<int:cid>', methods=['DELETE'])
+def may_borrar(cid):
+    if not _admin_ok():
+        return jsonify({'error': 'No autorizado'}), 401
+    with engine.begin() as conn:
+        conn.execute(text('DELETE FROM may_catalogos WHERE id=:id'), {'id': cid})
+    return jsonify({'ok': True})
+
+
+@app.route('/api/mayoristas/clientes/<int:cid>', methods=['DELETE'])
+def may_borrar_cliente(cid):
+    if not _admin_ok():
+        return jsonify({'error': 'No autorizado'}), 401
+    with engine.begin() as conn:
+        conn.execute(text('DELETE FROM may_descargas WHERE cliente_id=:id'), {'id': cid})
+        conn.execute(text('DELETE FROM may_clientes WHERE id=:id'), {'id': cid})
+    return jsonify({'ok': True})
+
+
+@app.route('/mayoristas/admin')
+def may_admin():
+    if not _admin_ok():
+        return 'No autorizado. Agregá ?clave=... a la URL.', 401
+    with engine.connect() as conn:
+        clientes = [dict(r) for r in conn.execute(text(
+            'SELECT c.id, c.nombre, c.comercio, c.telefono, c.localidad, c.fecha, c.ultima, '
+            'c.visitas, (SELECT COUNT(*) FROM may_descargas d WHERE d.cliente_id=c.id) AS descargas '
+            'FROM may_clientes c ORDER BY c.ultima DESC LIMIT 1000')).mappings()]
+    for c in clientes:
+        c['wa'] = _wa_numero(c['telefono'])
+    return render_template('mayoristas_admin.html', clientes=clientes,
+                           catalogos=_may_catalogos(), clave=BOT_KEY)
 
 
 @app.route('/')

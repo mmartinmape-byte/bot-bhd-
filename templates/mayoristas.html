@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#ffffff">
+<meta name="robots" content="noindex">
+<title>Mayoristas · Brothers Home & Deco</title>
+<link rel="icon" href="/static/logo-bhd.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #111111;
+    --muted: #6b6b6b;
+    --line: #e7e3dc;
+    --bg: #f7f5f1;
+    --card: #ffffff;
+    --wa: #25d366;
+    --r: 18px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    font-family: 'Montserrat', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 440px; margin: 0 auto; padding: 28px 16px 40px; }
+
+  header { text-align: center; margin-bottom: 22px; }
+  header img { display: block; margin: 0 auto; width: 150px; height: auto; mix-blend-mode: multiply; }
+  header .tag { display: inline-block; margin-top: 10px; font-size: .72rem; font-weight: 600;
+                letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  header h1 { font-size: 1.35rem; font-weight: 700; margin: 4px 0 4px; letter-spacing: -.01em; }
+  header p { margin: 0; color: var(--muted); font-size: .92rem; line-height: 1.45; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    padding: 20px 18px;
+    margin-bottom: 14px;
+  }
+  .card h2 { font-size: 1.02rem; font-weight: 600; margin: 0 0 4px; }
+  .card .sub { color: var(--muted); font-size: .86rem; margin: 0 0 6px; line-height: 1.45; }
+
+  .btn {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    width: 100%; min-height: 52px; padding: 14px 18px;
+    border: 0; border-radius: 14px; cursor: pointer;
+    font: 600 1rem 'Montserrat', system-ui, sans-serif;
+    text-decoration: none; transition: transform .08s ease, filter .15s ease;
+  }
+  .btn:active { transform: scale(.98); }
+  .btn-dark { background: var(--ink); color: #fff; }
+  .btn-wa { background: var(--wa); color: #fff; }
+  .btn[disabled] { opacity: .6; cursor: default; }
+
+  label { display: block; font-size: .8rem; font-weight: 600; margin: 14px 0 6px; }
+  label span { font-weight: 400; color: var(--muted); }
+  input {
+    width: 100%; font: 400 1rem 'Montserrat', system-ui, sans-serif; color: var(--ink);
+    border: 1.5px solid var(--line); border-radius: 12px; padding: 12px 14px; background: #fff;
+  }
+  input:focus { outline: none; border-color: var(--ink); }
+  form label:first-child { margin-top: 0; }
+  .err { color: #b42318; font-size: .85rem; margin: 10px 0 0; min-height: 1em; }
+  .mt { margin-top: 16px; }
+  .fine { color: var(--muted); font-size: .76rem; text-align: center; margin: 12px 0 0; line-height: 1.45; }
+
+  .cat { display: flex; align-items: center; gap: 14px; padding: 14px 2px;
+         border-top: 1px solid var(--line); color: var(--ink); text-decoration: none; }
+  .cat:first-of-type { border-top: 0; }
+  .cat .ico { flex: none; width: 46px; height: 46px; border-radius: 12px; background: #f1eee8;
+              display: grid; place-items: center; }
+  .cat .txt { flex: 1; min-width: 0; }
+  .cat .t { font-weight: 600; font-size: .98rem; }
+  .cat .m { color: var(--muted); font-size: .8rem; margin-top: 2px; }
+  .cat .go { color: var(--muted); font-size: 1.2rem; }
+  .vacio { color: var(--muted); font-size: .9rem; text-align: center; padding: 10px 0; }
+
+  footer { text-align: center; color: var(--muted); font-size: .8rem; line-height: 1.6; margin-top: 22px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <img src="/static/logo-bhd.png" alt="Brothers Home & Deco">
+    <div class="tag">Mayoristas</div>
+    {% if cliente %}
+    <h1>¡Hola, {{ cliente.nombre.split(' ')[0] }}!</h1>
+    <p>Estas son nuestras listas mayoristas vigentes.</p>
+    {% else %}
+    <h1>Catálogos mayoristas</h1>
+    <p>Dejanos tus datos y accedé a las listas<br>con precios para revendedores.</p>
+    {% endif %}
+  </header>
+
+  {% if cliente %}
+  <section class="card">
+    <h2>Listas de precios</h2>
+    <p class="sub">Tocá una para abrirla o descargarla.</p>
+    {% for c in catalogos %}
+    <a class="cat" href="/mayoristas/catalogo/{{ c.id }}" target="_blank" rel="noopener">
+      <div class="ico">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg>
+      </div>
+      <div class="txt">
+        <div class="t">{{ c.titulo }}</div>
+        <div class="m">PDF · {{ '%.1f' | format(c.bytes / 1048576) }} MB · actualizado {{ c.fecha[8:10] }}/{{ c.fecha[5:7] }}/{{ c.fecha[:4] }}</div>
+      </div>
+      <span class="go">→</span>
+    </a>
+    {% else %}
+    <p class="vacio">Estamos actualizando las listas. Escribinos y te las mandamos.</p>
+    {% endfor %}
+  </section>
+
+  <section class="card">
+    <h2>¿Querés hacer un pedido?</h2>
+    <p class="sub" style="margin-bottom:14px">Escribinos y te asesoramos con cantidades, stock y envío.</p>
+    <a class="btn btn-wa" target="_blank" rel="noopener"
+       href="https://wa.me/{{ whatsapp }}?text={{ ('¡Hola! Soy ' ~ cliente.nombre ~ ', vi la lista mayorista en el showroom y quiero hacer una consulta.') | urlencode }}">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M17.47 14.38c-.3-.15-1.76-.87-2.03-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.94 1.17-.17.2-.35.22-.64.07-.3-.15-1.26-.46-2.4-1.48-.89-.79-1.49-1.77-1.66-2.07-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.67-1.62-.92-2.22-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.79.37-.27.3-1.04 1.02-1.04 2.48s1.07 2.88 1.21 3.08c.15.2 2.1 3.2 5.08 4.49.71.31 1.26.49 1.7.63.71.23 1.36.2 1.87.12.57-.09 1.76-.72 2-1.41.25-.7.25-1.29.17-1.41-.07-.13-.27-.2-.57-.35M12.05 21.5h-.01a9.4 9.4 0 0 1-4.8-1.31l-.34-.2-3.57.93.95-3.48-.22-.36a9.4 9.4 0 0 1-1.44-5.02c0-5.2 4.24-9.44 9.45-9.44 2.52 0 4.9.99 6.68 2.77a9.37 9.37 0 0 1 2.76 6.68c0 5.2-4.24 9.43-9.45 9.43m8.04-17.47A11.3 11.3 0 0 0 12.05.7C5.79.7.69 5.8.69 12.06c0 2 .52 3.96 1.52 5.68L.6 23.6l6.01-1.58a11.3 11.3 0 0 0 5.43 1.38h.01c6.26 0 11.36-5.1 11.36-11.36 0-3.03-1.18-5.89-3.32-8.03"/></svg>
+      Hacer un pedido por WhatsApp
+    </a>
+  </section>
+
+  {% else %}
+  <section class="card">
+    <form id="f" novalidate>
+      <label for="f-nom">Nombre y apellido</label>
+      <input id="f-nom" maxlength="80" autocomplete="name" required>
+      <label for="f-com">Nombre del comercio</label>
+      <input id="f-com" maxlength="100" autocomplete="organization" required>
+      <label for="f-tel">WhatsApp</label>
+      <input id="f-tel" maxlength="30" inputmode="tel" autocomplete="tel" placeholder="11 1234 5678" required>
+      <label for="f-loc">Localidad <span>(opcional)</span></label>
+      <input id="f-loc" maxlength="80" autocomplete="address-level2">
+      <p class="err" id="f-err" role="alert"></p>
+      <button class="btn btn-dark mt" id="f-btn" type="submit">Ver catálogos</button>
+    </form>
+    <p class="fine">Tus datos quedan solo en Brothers Home & Deco para poder asesorarte. La próxima vez entrás directo.</p>
+  </section>
+  {% endif %}
+
+  <footer>
+    Showroom · {{ direccion }}<br>
+    Lun a vie 9–12 y 13–17 hs · Sáb 10–17 hs
+  </footer>
+</div>
+
+{% if not cliente %}
+<script>
+(function () {
+  const f = document.getElementById('f');
+  const err = document.getElementById('f-err');
+  const btn = document.getElementById('f-btn');
+  const val = id => document.getElementById(id).value.trim();
+
+  f.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const datos = { nombre: val('f-nom'), comercio: val('f-com'),
+                    telefono: val('f-tel'), localidad: val('f-loc') };
+    if (!datos.nombre || !datos.comercio) { err.textContent = 'Completá tu nombre y el nombre del comercio.'; return; }
+    if (datos.telefono.replace(/\D/g, '').length < 8) { err.textContent = 'Revisá el número de WhatsApp.'; return; }
+    err.textContent = '';
+    btn.disabled = true; btn.textContent = 'Un momento…';
+    try {
+      const r = await fetch('/api/mayoristas/registro', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(datos)
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || '');
+      location.reload();
+    } catch (e2) {
+      err.textContent = e2.message || 'No se pudo enviar. Revisá tu conexión y probá de nuevo.';
+      btn.disabled = false; btn.textContent = 'Ver catálogos';
+    }
+  });
+})();
+</script>
+{% endif %}
+</body>
+</html>

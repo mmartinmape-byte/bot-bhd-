@@ -71,6 +71,8 @@ En el Salesbot de Kommo hay que agregar un paso **HTTP** que llame a `POST /api/
 - `GET /hola` — **página pública del showroom** que se graba en las tarjetas NFC / QR. Botón de WhatsApp (mensaje precargado, entra a Kommo) + calificación con estrellas: 4-5 ★ → pide reseña en Google; 1-3 ★ → comentario privado para el equipo (igual muestra un link chico a Google). `?o=mostrador`, `?o=entrega`, etc. identifica de qué tarjeta vino.
 - `POST /api/opinion` (registra las estrellas apenas las tocan, devuelve un `token`) y `PATCH /api/opinion/<token>` (suma comentario/nombre/teléfono). Tabla `opiniones`.
 - `GET /opiniones?clave=<BOT_KEY>` — panel con promedio, reparto por estrellas y comentarios (con link al WhatsApp del cliente).
+- `GET /mayoristas` — **catálogos mayoristas** (QR del showroom). La 1ª vez pide nombre, comercio, WhatsApp y localidad (`POST /api/mayoristas/registro`, dedupe por los últimos 8 dígitos del teléfono) y deja una cookie `bhd_may` de 1 año; después lista los PDF. `GET /mayoristas/catalogo/<id>` sirve el PDF solo con cookie válida (o `?clave=`) y registra la descarga. Tablas `may_clientes`, `may_catalogos` (PDF guardado en la base, BYTEA/BLOB), `may_descargas`.
+- `GET /mayoristas/admin?clave=<BOT_KEY>` — subir / reemplazar / borrar listas y ver los clientes registrados (visitas, descargas, link a WhatsApp).
 - Variables opcionales: `GOOGLE_RESENA_URL` (link "Pedir reseñas" del Perfil de Empresa de Google; por defecto https://g.page/r/Ce8b2GtaF-NLEBM/review) y `WHATSAPP_BHD` (por defecto 5491122548842).
 
 ## Gotchas / cosas a no romper

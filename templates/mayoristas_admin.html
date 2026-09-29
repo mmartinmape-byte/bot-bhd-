@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Mayoristas BHD</title>
+<style>
+  :root { --ink:#111; --muted:#6b6b6b; --line:#e7e3dc; --bg:#f7f5f1; --card:#fff; --bad:#b42318; --wa:#128c4a; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; background:var(--bg); color:var(--ink); }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 24px 16px 40px; }
+  h1 { font-size: 1.3rem; margin: 0 0 4px; }
+  .link { color: var(--muted); font-size: .85rem; margin: 0 0 18px; word-break: break-all; }
+  .link a { color: var(--ink); }
+  h2 { font-size: 1rem; margin: 22px 0 10px; }
+  .box { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; }
+  .cat { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:10px 0; border-top:1px solid var(--line); }
+  .cat:first-child { border-top:0; padding-top:0; }
+  .cat .t { flex:1; min-width:180px; font-weight:600; }
+  .cat .t small { display:block; font-weight:400; color:var(--muted); font-size:.8rem; margin-top:2px; }
+  button, .btn { border:1.5px solid var(--line); background:#fff; color:var(--ink); border-radius:8px; padding:6px 12px;
+                 font:inherit; font-size:.85rem; cursor:pointer; text-decoration:none; }
+  button.pri { background:var(--ink); color:#fff; border-color:var(--ink); }
+  button.del:hover { color:var(--bad); border-color:var(--bad); }
+  .nuevo { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; padding-top:14px; border-top:1px solid var(--line); }
+  .nuevo input[type=text] { flex:1; min-width:200px; border:1.5px solid var(--line); border-radius:8px; padding:7px 10px; font:inherit; }
+  .msg { font-size:.85rem; margin-top:8px; min-height:1em; }
+  .msg.err { color:var(--bad); }
+  .tabla { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:14px; overflow:hidden; font-size:.88rem; }
+  .tabla th, .tabla td { text-align:left; padding:10px 12px; border-top:1px solid var(--line); vertical-align:top; }
+  .tabla th { border-top:0; background:#efebe4; font-size:.75rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }
+  .tabla a.wa { color:var(--wa); font-weight:600; text-decoration:none; }
+  .tabla .num { text-align:center; }
+  .muted { color:var(--muted); }
+  .scroll { overflow-x:auto; }
+  .empty { text-align:center; color:var(--muted); padding:30px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🏷️ Catálogos mayoristas</h1>
+  <p class="link">Página del QR: <a href="/mayoristas" target="_blank">{{ request.host_url }}mayoristas</a></p>
+
+  <h2>Listas publicadas</h2>
+  <div class="box">
+    {% for c in catalogos %}
+    <div class="cat">
+      <div class="t">{{ c.titulo }}<small>{{ '%.1f' | format(c.bytes / 1048576) }} MB · subido {{ c.fecha }}</small></div>
+      <a class="btn" href="/mayoristas/catalogo/{{ c.id }}?clave={{ clave }}" target="_blank">Ver</a>
+      <button type="button" onclick="elegir({{ c.id }}, {{ c.titulo | tojson }})">Reemplazar PDF</button>
+      <button type="button" class="del" onclick="borrar({{ c.id }}, {{ c.titulo | tojson }})">Borrar</button>
+    </div>
+    {% else %}
+    <p class="muted" style="margin:0">Todavía no hay listas. Subí la primera acá abajo.</p>
+    {% endfor %}
+
+    <form class="nuevo" id="f-nuevo">
+      <input type="text" id="n-titulo" placeholder="Título (ej: Lista Fabricación)" maxlength="100">
+      <input type="file" id="n-pdf" accept="application/pdf">
+      <button class="pri" type="submit">Subir lista</button>
+    </form>
+    <div class="msg" id="msg"></div>
+    <input type="file" id="r-pdf" accept="application/pdf" hidden>
+  </div>
+
+  <h2>Clientes que se registraron ({{ clientes | length }})</h2>
+  {% if clientes %}
+  <div class="scroll">
+  <table class="tabla">
+    <thead><tr><th>Nombre</th><th>Comercio</th><th>WhatsApp</th><th>Localidad</th><th>Registro</th><th>Última visita</th><th class="num">Visitas</th><th class="num">Descargas</th><th></th></tr></thead>
+    <tbody>
+    {% for c in clientes %}
+    <tr>
+      <td>{{ c.nombre }}</td>
+      <td>{{ c.comercio }}</td>
+      <td>{% if c.wa %}<a class="wa" href="https://wa.me/{{ c.wa }}" target="_blank">{{ c.telefono }}</a>{% else %}{{ c.telefono }}{% endif %}</td>
+      <td class="muted">{{ c.localidad or '—' }}</td>
+      <td class="muted">{{ c.fecha }}</td>
+      <td class="muted">{{ c.ultima }}</td>
+      <td class="num">{{ c.visitas }}</td>
+      <td class="num">{{ c.descargas }}</td>
+      <td><button type="button" class="del" onclick="borrarCliente({{ c.id }}, {{ c.nombre | tojson }})">Borrar</button></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="box empty">Cuando alguien escanee el QR y deje sus datos, aparece acá.</div>
+  {% endif %}
+</div>
+
+<script>
+const CLAVE = {{ clave | tojson }};
+const msg = document.getElementById('msg');
+let reemplazo = null;
+
+async function subir(titulo, archivo, reemplaza) {
+  const fd = new FormData();
+  fd.append('titulo', titulo); fd.append('pdf', archivo);
+  if (reemplaza) fd.append('reemplaza', reemplaza);
+  msg.className = 'msg'; msg.textContent = 'Subiendo…';
+  const r = await fetch('/api/mayoristas/catalogos', { method: 'POST', headers: { 'X-Bot-Key': CLAVE }, body: fd });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { msg.className = 'msg err'; msg.textContent = j.error || 'No se pudo subir.'; return; }
+  location.reload();
+}
+
+document.getElementById('f-nuevo').addEventListener('submit', e => {
+  e.preventDefault();
+  const titulo = document.getElementById('n-titulo').value.trim();
+  const archivo = document.getElementById('n-pdf').files[0];
+  if (!titulo || !archivo) { msg.className = 'msg err'; msg.textContent = 'Poné un título y elegí el PDF.'; return; }
+  subir(titulo, archivo);
+});
+
+function elegir(id, titulo) { reemplazo = { id, titulo }; document.getElementById('r-pdf').click(); }
+document.getElementById('r-pdf').addEventListener('change', e => {
+  const archivo = e.target.files[0];
+  if (archivo && reemplazo) subir(reemplazo.titulo, archivo, reemplazo.id);
+  e.target.value = '';
+});
+
+async function borrar(id, titulo) {
+  if (!confirm('¿Borrar la lista "' + titulo + '"? Los clientes dejan de verla.')) return;
+  await fetch('/api/mayoristas/catalogos/' + id, { method: 'DELETE', headers: { 'X-Bot-Key': CLAVE } });
+  location.reload();
+}
+async function borrarCliente(id, nombre) {
+  if (!confirm('¿Borrar a ' + nombre + '? Va a tener que volver a registrarse.')) return;
+  await fetch('/api/mayoristas/clientes/' + id, { method: 'DELETE', headers: { 'X-Bot-Key': CLAVE } });
+  location.reload();
+}
+</script>
+</body>
+</html>
