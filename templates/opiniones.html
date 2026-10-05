@@ -71,7 +71,7 @@
   <div class="item{{ ' bad' if f.estrellas <= 3 }}" data-bad="{{ 1 if f.estrellas <= 3 else 0 }}" data-com="{{ 1 if f.comentario else 0 }}">
     <div class="head">
       <span class="st">{{ '★' * f.estrellas }}<span style="color:#ddd6ca">{{ '★' * (5 - f.estrellas) }}</span></span>
-      <span>{{ f.fecha }} · <span class="tag">{{ f.origen or 'showroom' }}</span>
+      <span>{{ f.fecha }} · <span class="tag">{{ f.origen or 'showroom' }}</span>{% if f.venta %} <span class="tag">Venta #{{ f.venta }}</span>{% endif %}
         <button class="del" type="button" data-id="{{ f.id }}" title="Borrar esta calificación">Borrar</button></span>
     </div>
     {% if f.comentario %}<p class="com">{{ f.comentario }}</p>{% endif %}

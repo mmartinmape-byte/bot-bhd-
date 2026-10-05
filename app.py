@@ -107,6 +107,11 @@ with engine.begin() as conn:
             catalogo_id INTEGER NOT NULL,
             fecha       TEXT NOT NULL
         )'''))
+    # N° de venta de ventas-app (link de reseña post-entrega: /hola?o=entrega&v=N)
+    if IS_PG:
+        conn.execute(text("ALTER TABLE opiniones ADD COLUMN IF NOT EXISTS venta TEXT NOT NULL DEFAULT ''"))
+    elif 'venta' not in [r[1] for r in conn.execute(text('PRAGMA table_info(opiniones)'))]:
+        conn.execute(text("ALTER TABLE opiniones ADD COLUMN venta TEXT NOT NULL DEFAULT ''"))
 
 
 def _now():
@@ -459,7 +464,8 @@ def hola():
     origen = re.sub(r'[^a-z0-9_-]', '', (request.args.get('o') or 'showroom').lower())[:30]
     return render_template('hola.html', whatsapp=WHATSAPP_BHD, resena_url=GOOGLE_RESENA_URL,
                            tienda_url=TIENDA_URL, direccion=SHOWROOM_DIR,
-                           origen=origen or 'showroom')
+                           origen=origen or 'showroom',
+                           venta=re.sub(r'\D', '', request.args.get('v') or '')[:12])
 
 
 @app.route('/api/opinion', methods=['POST'])
@@ -476,8 +482,9 @@ def api_opinion():
     token = uuid.uuid4().hex
     with engine.begin() as conn:
         conn.execute(text(
-            'INSERT INTO opiniones (estrellas, origen, token, fecha) VALUES (:e, :o, :t, :f)'),
-            {'e': estrellas, 'o': _limpio(d.get('origen'), 30), 't': token,
+            'INSERT INTO opiniones (estrellas, origen, venta, token, fecha) VALUES (:e, :o, :v, :t, :f)'),
+            {'e': estrellas, 'o': _limpio(d.get('origen'), 30),
+             'v': re.sub(r'\D', '', str(d.get('venta') or ''))[:12], 't': token,
              'f': datetime.now(ARG).strftime('%Y-%m-%d %H:%M')})
     return jsonify({'ok': True, 'token': token})
 
@@ -526,7 +533,7 @@ def opiniones():
         return 'No autorizado. Agregá ?clave=... a la URL.', 401
     with engine.connect() as conn:
         filas = conn.execute(text(
-            'SELECT id, estrellas, comentario, nombre, telefono, origen, fecha '
+            'SELECT id, estrellas, comentario, nombre, telefono, origen, venta, fecha '
             'FROM opiniones ORDER BY id DESC LIMIT 500')).mappings().all()
     filas = [dict(f, wa=_wa_numero(f['telefono'])) for f in filas]
     total = len(filas)

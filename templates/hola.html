@@ -190,6 +190,7 @@
 <script>
 (function () {
   const ORIGEN = {{ origen | tojson }};
+  const VENTA = {{ venta | tojson }};
   const LABELS = ['', 'Muy mala', 'Mala', 'Regular', 'Buena', '¡Excelente!'];
   const stars = Array.from(document.querySelectorAll('.star'));
   const lbl = document.getElementById('stars-lbl');
@@ -198,7 +199,7 @@
   function crear(n) {
     return fetch('/api/opinion', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ estrellas: n, origen: ORIGEN })
+      body: JSON.stringify({ estrellas: n, origen: ORIGEN, venta: VENTA })
     }).then(r => r.json()).then(r => r.token || null).catch(() => null);
   }
 
