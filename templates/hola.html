@@ -142,7 +142,7 @@
         <div class="big">🙌</div>
         <p><strong>¡Qué bueno que te gustó!</strong><br>¿Nos ayudás contándolo en Google? Son 30 segundos.</p>
       </div>
-      <a class="btn btn-dark" href="{{ resena_url }}" target="_blank" rel="noopener">
+      <a class="btn btn-dark js-google" href="{{ resena_url }}" target="_blank" rel="noopener">
         <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M21.35 11.1H12v2.9h5.35c-.23 1.5-1.8 4.4-5.35 4.4-3.22 0-5.85-2.67-5.85-5.95S8.78 6.5 12 6.5c1.83 0 3.06.78 3.76 1.45l2.57-2.47C16.68 3.95 14.55 3 12 3 6.98 3 3 7.02 3 12s3.98 9 9 9c5.2 0 8.64-3.65 8.64-8.8 0-.6-.07-1.05-.15-1.5z"/></svg>
         Dejar reseña en Google
       </a>
@@ -163,7 +163,7 @@
       <div class="row-gap">
         <button class="btn btn-dark" id="f-send" type="button">Enviar</button>
       </div>
-      <a class="small-link" href="{{ resena_url }}" target="_blank" rel="noopener">o dejá tu reseña en Google</a>
+      <a class="small-link js-google" href="{{ resena_url }}" target="_blank" rel="noopener">o dejá tu reseña en Google</a>
     </div>
 
     <!-- Gracias -->
@@ -234,6 +234,15 @@
       token = await tokenP;
       if (!token) tokenP = null;  // sin señal: se reintenta en el próximo toque o al enviar
     }
+  }));
+
+  // Registrar que fue a Google (sin frenar el link). Si la calificación todavía
+  // se está creando, se espera el token y se avisa igual.
+  document.querySelectorAll('.js-google').forEach(a => a.addEventListener('click', async () => {
+    if (!token && tokenP) token = await tokenP;
+    if (!token) return;
+    const url = '/api/opinion/' + token + '/google';
+    if (!(navigator.sendBeacon && navigator.sendBeacon(url))) fetch(url, { method: 'POST', keepalive: true }).catch(() => {});
   }));
 
   document.getElementById('f-send').addEventListener('click', async () => {

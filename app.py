@@ -112,6 +112,12 @@ with engine.begin() as conn:
         conn.execute(text("ALTER TABLE opiniones ADD COLUMN IF NOT EXISTS venta TEXT NOT NULL DEFAULT ''"))
     elif 'venta' not in [r[1] for r in conn.execute(text('PRAGMA table_info(opiniones)'))]:
         conn.execute(text("ALTER TABLE opiniones ADD COLUMN venta TEXT NOT NULL DEFAULT ''"))
+    # Cuándo tocó "Dejar reseña en Google". NULL = opinión anterior a este registro
+    # (no se sabe); '' = no tocó el botón; fecha = fue a Google.
+    if IS_PG:
+        conn.execute(text('ALTER TABLE opiniones ADD COLUMN IF NOT EXISTS fue_google TEXT'))
+    elif 'fue_google' not in [r[1] for r in conn.execute(text('PRAGMA table_info(opiniones)'))]:
+        conn.execute(text('ALTER TABLE opiniones ADD COLUMN fue_google TEXT'))
 
 
 def _now():
@@ -482,7 +488,7 @@ def api_opinion():
     token = uuid.uuid4().hex
     with engine.begin() as conn:
         conn.execute(text(
-            'INSERT INTO opiniones (estrellas, origen, venta, token, fecha) VALUES (:e, :o, :v, :t, :f)'),
+            "INSERT INTO opiniones (estrellas, origen, venta, token, fecha, fue_google) VALUES (:e, :o, :v, :t, :f, '')"),
             {'e': estrellas, 'o': _limpio(d.get('origen'), 30),
              'v': re.sub(r'\D', '', str(d.get('venta') or ''))[:12], 't': token,
              'f': datetime.now(ARG).strftime('%Y-%m-%d %H:%M')})
@@ -517,6 +523,16 @@ def api_opinion_detalle(token):
     return jsonify({'ok': True})
 
 
+@app.route('/api/opinion/<token>/google', methods=['POST'])
+def api_opinion_google(token):
+    """El cliente tocó "Dejar reseña en Google" (llega por sendBeacon al salir)."""
+    with engine.begin() as conn:
+        conn.execute(text(
+            "UPDATE opiniones SET fue_google=:f WHERE token=:t AND COALESCE(fue_google,'')=''"),
+            {'f': datetime.now(ARG).strftime('%Y-%m-%d %H:%M'), 't': token})
+    return ('', 204)
+
+
 @app.route('/api/opiniones/<int:oid>', methods=['DELETE'])
 def api_opinion_borrar(oid):
     """Borra una calificación desde el panel (para limpiar pruebas)."""
@@ -533,7 +549,7 @@ def opiniones():
         return 'No autorizado. Agregá ?clave=... a la URL.', 401
     with engine.connect() as conn:
         filas = conn.execute(text(
-            'SELECT id, estrellas, comentario, nombre, telefono, origen, venta, fecha '
+            'SELECT id, estrellas, comentario, nombre, telefono, origen, venta, fecha, fue_google '
             'FROM opiniones ORDER BY id DESC LIMIT 500')).mappings().all()
     filas = [dict(f, wa=_wa_numero(f['telefono'])) for f in filas]
     total = len(filas)
