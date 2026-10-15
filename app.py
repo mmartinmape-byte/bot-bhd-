@@ -139,7 +139,7 @@ CONOCIMIENTO = """Sos el asistente virtual de Brothers Home & Deco (BHD), tienda
 
 # Ubicación y horarios
 Showroom: José Hernández 5070, Munro, Buenos Aires.
-Horarios: lunes a viernes de 9 a 12 hs y de 13 a 17 hs; sábados de 10 a 17 hs.
+Horarios: lunes a viernes de 9 a 11 hs y de 13 a 17 hs; sábados de 9 a 13 hs.
 También se puede retirar por el depósito en Munro, Vicente López.
 
 # Productos
