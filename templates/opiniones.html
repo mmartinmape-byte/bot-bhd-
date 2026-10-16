@@ -58,6 +58,11 @@
     </div>
   </div>
 
+  <p style="font-size:.85rem;color:#6b6b6b;margin:0 0 14px">
+    {% if cupon %}🎁 Cupón del mes: <strong style="color:#111">{{ cupon.codigo }}</strong> (10 % OFF, vence {{ cupon.hasta.strftime('%d/%m') }}){% if cupon.usos is not none %} · usado <strong style="color:#111">{{ cupon.usos }}</strong> {{ 'vez' if cupon.usos == 1 else 'veces' }} en la tienda{% endif %}
+    {% else %}🎁 Cupón del mes: no disponible — falta el permiso "Cupones" de Tienda Nube (reconectar en /tn/conectar).{% endif %}
+  </p>
+
   <div class="filtros">
     <button class="on" data-f="todas">Todas</button>
     <button data-f="bad">Para mejorar (1–3 ★)</button>

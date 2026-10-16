@@ -98,6 +98,17 @@
   .links a:first-child { border-top: 0; padding-top: 2px; }
   .links a span { color: var(--muted); }
 
+  /* Cupón de agradecimiento */
+  .regalo { background: #fbf6ea; border-radius: 12px; padding: 10px 12px; font-size: .86rem;
+            line-height: 1.45; margin: 0 0 14px; text-align: center; }
+  .cupon { display: none; margin-top: 16px; border: 1.5px dashed var(--star); border-radius: 14px;
+           padding: 14px; text-align: center; background: #fffaf0; }
+  .cupon.show { display: block; animation: in .25s ease; }
+  .cupon p { margin: 0; font-size: .88rem; line-height: 1.45; }
+  .cupon .codigo { font-size: 1.35rem; font-weight: 700; letter-spacing: .06em; margin: 8px 0; }
+  .cupon .btn { min-height: 44px; padding: 10px 14px; font-size: .92rem; margin-top: 8px; }
+  .cupon .vence { color: var(--muted); font-size: .78rem; margin-top: 8px; }
+
   footer { text-align: center; color: var(--muted); font-size: .8rem; line-height: 1.6; margin-top: 22px; }
 </style>
 </head>
@@ -125,6 +136,9 @@
   <section class="card" id="card-rate">
     <h2>¿Cómo fue tu experiencia?</h2>
     <p class="sub">Tocá las estrellas. Nos ayuda muchísimo.</p>
+    {% if cupon %}
+    <p class="regalo">🎁 Por dejarnos tu calificación te regalamos un <strong>{{ cupon_porc }}% OFF</strong> para tu próxima compra en la tienda online.</p>
+    {% endif %}
 
     <div class="stars" role="radiogroup" aria-label="Calificación de 1 a 5 estrellas">
       {% for n in range(1, 6) %}
@@ -173,6 +187,15 @@
         <p><strong>¡Gracias!</strong><br>Lo va a leer el equipo. Si dejaste tu WhatsApp, te vamos a escribir.</p>
       </div>
     </div>
+
+    <!-- Cupón de agradecimiento (aparece apenas califican, con cualquier puntaje) -->
+    <div class="cupon" id="cupon">
+      <p>🎁 <strong>¡Gracias por tu calificación!</strong><br>Tu {{ cupon_porc }}% OFF para la tienda online:</p>
+      <div class="codigo" id="cupon-cod"></div>
+      <button class="btn btn-ghost" id="cupon-copiar" type="button">Copiar código</button>
+      <a class="btn btn-dark" href="{{ tienda_url }}" target="_blank" rel="noopener">Ir a la tienda</a>
+      <p class="vence">Válido hasta el <span id="cupon-hasta"></span>. Se ingresa en el carrito.</p>
+    </div>
   </section>
 
   <!-- Links -->
@@ -200,8 +223,25 @@
     return fetch('/api/opinion', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ estrellas: n, origen: ORIGEN, venta: VENTA })
-    }).then(r => r.json()).then(r => r.token || null).catch(() => null);
+    }).then(r => r.json()).then(r => { mostrarCupon(r.cupon); return r.token || null; })
+      .catch(() => null);
   }
+
+  function mostrarCupon(c) {
+    if (!c || !c.codigo) return;
+    document.getElementById('cupon-cod').textContent = c.codigo;
+    document.getElementById('cupon-hasta').textContent = c.hasta;
+    document.getElementById('cupon').classList.add('show');
+  }
+  document.getElementById('cupon-copiar').addEventListener('click', e => {
+    const cod = document.getElementById('cupon-cod').textContent;
+    const ok = () => { e.target.textContent = '✓ Copiado'; };
+    if (navigator.clipboard) navigator.clipboard.writeText(cod).then(ok, () => {});
+    else {
+      const t = document.createElement('textarea'); t.value = cod; document.body.appendChild(t);
+      t.select(); try { document.execCommand('copy'); ok(); } catch (x) {} t.remove();
+    }
+  });
 
   function pintar(n) {
     stars.forEach((s, i) => {

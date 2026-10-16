@@ -7,7 +7,7 @@
 from flask import Flask, render_template, request, jsonify, redirect, Response
 from sqlalchemy import create_engine, text
 from datetime import datetime, timezone, timedelta
-import os, re, json, uuid
+import os, re, json, uuid, time
 import requests as req_lib
 import anthropic
 
@@ -202,6 +202,72 @@ def tn_headers():
 
 def tn_base():
     return f"https://api.tiendanube.com/v1/{cfg_get('tn_store')}"
+
+
+# ── Cupón del mes (agradecimiento por calificar en /hola) ─────────────────────
+# Un código único por mes (10 %, vigente del 1 al último día del mes), creado
+# solo en Tienda Nube la primera vez que se necesita en el mes. Es por calificar
+# en NUESTRA página (cualquier cantidad de estrellas), nunca a cambio de la
+# reseña en Google: Google prohíbe incentivar reseñas y puede borrarlas.
+# Requiere el permiso "Cupones → Editar" en la app de partners (y reconectar).
+
+CUPON_PORC  = 10
+_MESES_ABR  = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC']
+_cupon_fallo = {'ts': 0}  # si TN falla (ej. falta el permiso) no reintenta en cada visita
+
+
+def _fin_de_mes(d):
+    sig = (d.replace(day=28) + timedelta(days=4)).replace(day=1)
+    return sig - timedelta(days=1)
+
+
+def cupon_del_mes():
+    """{'codigo', 'hasta'} del cupón del mes en curso (lo crea si no existe), o None."""
+    hoy = datetime.now(ARG).date()
+    clave = f'cupon_{hoy:%Y-%m}'
+    hasta = _fin_de_mes(hoy)
+    codigo = cfg_get(clave)
+    if codigo:
+        return {'codigo': codigo, 'hasta': hasta}
+    if not cfg_get('tn_token') or time.time() - _cupon_fallo['ts'] < 600:
+        return None
+    codigo = f'GRACIAS{_MESES_ABR[hoy.month - 1]}{hoy:%y}'
+    try:
+        r = req_lib.post(f'{tn_base()}/coupons', headers=tn_headers(), timeout=20, json={
+            'code': codigo, 'type': 'percentage', 'value': f'{CUPON_PORC:.2f}',
+            'start_date': hoy.replace(day=1).isoformat(), 'end_date': hasta.isoformat(),
+            'min_price': 0, 'includes_shipping': False, 'first_consumer_purchase': False,
+            'combines_with_other_discounts': True,
+        })
+        if r.status_code not in (200, 201):
+            # ¿Ya existía (otra visita lo creó al mismo tiempo, o se creó a mano)?
+            g = req_lib.get(f'{tn_base()}/coupons', headers=tn_headers(), timeout=20,
+                            params={'q': codigo})
+            existe = g.status_code == 200 and any(
+                (c.get('code') or '').upper() == codigo for c in g.json())
+            if not existe:
+                print(f'  Cupón: TN respondió {r.status_code}: {r.text[:300]}')
+                _cupon_fallo['ts'] = time.time()
+                return None
+    except Exception as ex:
+        print(f'  Cupón: error con Tienda Nube: {ex}')
+        _cupon_fallo['ts'] = time.time()
+        return None
+    cfg_set(clave, codigo)
+    return {'codigo': codigo, 'hasta': hasta}
+
+
+def cupon_usos(codigo):
+    """Veces que se usó un cupón en la tienda (para el panel), o None si no se pudo ver."""
+    try:
+        g = req_lib.get(f'{tn_base()}/coupons', headers=tn_headers(), timeout=15,
+                        params={'q': codigo})
+        for c in g.json() if g.status_code == 200 else []:
+            if (c.get('code') or '').upper() == codigo:
+                return c.get('used') or 0
+    except Exception:
+        pass
+    return None
 
 
 @app.route('/tn/conectar')
@@ -470,6 +536,7 @@ def hola():
     origen = re.sub(r'[^a-z0-9_-]', '', (request.args.get('o') or 'showroom').lower())[:30]
     return render_template('hola.html', whatsapp=WHATSAPP_BHD, resena_url=GOOGLE_RESENA_URL,
                            tienda_url=TIENDA_URL, direccion=SHOWROOM_DIR,
+                           cupon=cupon_del_mes(), cupon_porc=CUPON_PORC,
                            origen=origen or 'showroom',
                            venta=re.sub(r'\D', '', request.args.get('v') or '')[:12])
 
@@ -492,7 +559,9 @@ def api_opinion():
             {'e': estrellas, 'o': _limpio(d.get('origen'), 30),
              'v': re.sub(r'\D', '', str(d.get('venta') or ''))[:12], 't': token,
              'f': datetime.now(ARG).strftime('%Y-%m-%d %H:%M')})
-    return jsonify({'ok': True, 'token': token})
+    cupon = cupon_del_mes()
+    return jsonify({'ok': True, 'token': token, 'cupon': cupon and {
+        'codigo': cupon['codigo'], 'hasta': cupon['hasta'].strftime('%d/%m')}})
 
 
 @app.route('/api/opinion/<token>', methods=['PATCH'])
@@ -555,8 +624,12 @@ def opiniones():
     total = len(filas)
     promedio = round(sum(f['estrellas'] for f in filas) / total, 1) if total else 0
     por_estrella = {n: sum(1 for f in filas if f['estrellas'] == n) for n in range(5, 0, -1)}
+    cupon = cupon_del_mes()
+    if cupon:
+        cupon['usos'] = cupon_usos(cupon['codigo'])
     return render_template('opiniones.html', filas=filas, total=total,
-                           promedio=promedio, por_estrella=por_estrella, clave=BOT_KEY)
+                           promedio=promedio, por_estrella=por_estrella, clave=BOT_KEY,
+                           cupon=cupon)
 
 
 # ── Catálogos mayoristas (QR en el showroom) ──────────────────────────────────
